@@ -130,13 +130,13 @@ else
 #
 #  Options:
 #
-#     -ansi              Compile source as ANSI C
+#                   Compile source as ANSI C
 #
 #     -DNON_UNIX_STDIO   Don't assume standard Unix stdio.h 
 #                        implementation
 #
 #
-   set TKCOMPILEOPTIONS = "-c -ansi -m64 -O2 -fPIC -I../include -DNON_UNIX_STDIO"
+   set TKCOMPILEOPTIONS = "-c -m64 -O2 -fPIC -I../include -DNON_UNIX_STDIO"
    echo " "
    echo "      Setting default compile options:"
    echo "      $TKCOMPILEOPTIONS"
@@ -170,6 +170,10 @@ if ( $status == 0 ) then
    foreach SRCFILE ( *.c )
       echo "      Compiling: "   $SRCFILE
       $TKCOMPILER $TKCOMPILEOPTIONS $SRCFILE
+      if ( $status != 0 ) then
+         echo "      Compilation failed for: " $SRCFILE
+         exit 1
+      endif
    end
 
 endif
