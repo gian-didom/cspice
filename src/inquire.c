@@ -9,7 +9,8 @@ integer f_inqu(a) inlist *a;
 #undef min
 #undef max
 #include "io.h"
-#else
+#endif
+#ifdef __APPLE__
 #include "unistd.h" /* for access */
 #endif
 integer f_inqu(inlist *a)
