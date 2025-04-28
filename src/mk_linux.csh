@@ -1,4 +1,4 @@
-#! /bin/csh
+#! /bin/tcsh
 #
 #   PC-LINUX 64bit version.
 #
@@ -165,6 +165,7 @@ set LIBRARY = "../lib/libcspice"
 #
 \ls *.c >& /dev/null
 
+echo "Starting compilation..."
 if ( $status == 0 ) then
 
    foreach SRCFILE ( *.c )
