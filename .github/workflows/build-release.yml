@@ -1,0 +1,286 @@
+name: Build and Release CSPICE Libraries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for the release'
+        required: true
+        default: 'v0.0.0'
+
+jobs:
+  build:
+    name: Build CSPICE Libraries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            build_script: mk_linux.csh
+            shell: bash
+            artifact_name: cspice-linux-x64
+            lib_path: lib/libcspice.a
+            setup_commands: |
+              sudo apt-get update
+              sudo apt-get install -y csh
+          - os: macos-latest
+            build_script: mk_mac.csh
+            shell: bash
+            artifact_name: cspice-macos-x64
+            lib_path: lib/libcspice.a
+            setup_commands: echo "No setup needed for macOS"
+          - os: windows-latest
+            build_script: mk_static.bat
+            shell: cmd
+            artifact_name: cspice-windows-static
+            lib_path: lib/cspice.lib
+            setup_commands: echo "Setting up MSVC"
+          - os: windows-latest
+            build_script: mk_dll.bat
+            shell: cmd
+            artifact_name: cspice-windows-dll
+            lib_path: bin/cspice.dll
+            setup_commands: echo "Setting up MSVC for DLL"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        shell: bash
+        run: ${{ matrix.setup_commands }}
+
+      - name: Setup MSVC environment (Windows)
+        if: matrix.shell == 'cmd'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build CSPICE library (Unix)
+        if: matrix.shell == 'bash'
+        shell: bash
+        run: |
+          cd src
+          echo "Compiling CSPICE C source files..."
+          
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            # Linux build
+            gcc -c -m64 -O2 -fPIC -I../include -DNON_UNIX_STDIO *.c
+          else
+            # macOS build  
+            cc -c -O2 -fPIC -I../include -DNON_UNIX_STDIO *.c
+          fi
+          
+          echo "Creating static library..."
+          ar crv ../lib/libcspice.a *.o
+          ranlib ../lib/libcspice.a
+          rm -f *.o
+          
+          echo "Build completed successfully"
+
+      - name: Build CSPICE library (Windows)
+        if: matrix.shell == 'cmd'
+        shell: cmd
+        run: |
+          cd src
+          call ${{ matrix.build_script }}
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          if [ -f "${{ matrix.lib_path }}" ]; then
+            echo "Build successful: ${{ matrix.lib_path }}"
+            ls -la ${{ matrix.lib_path }}
+            file ${{ matrix.lib_path }} || echo "File command not available"
+          else
+            echo "Build failed: ${{ matrix.lib_path }} not found"
+            exit 1
+          fi
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts/${{ matrix.artifact_name }}
+          
+          # Copy built library
+          if [ -f "${{ matrix.lib_path }}" ]; then
+            cp ${{ matrix.lib_path }} artifacts/${{ matrix.artifact_name }}/
+          fi
+          
+          # For Windows DLL build, also copy .lib and .exp files
+          if [ "${{ matrix.artifact_name }}" = "cspice-windows-dll" ]; then
+            if [ -f "lib/cspice_dll.lib" ]; then
+              cp lib/cspice_dll.lib artifacts/${{ matrix.artifact_name }}/
+            fi
+            if [ -f "lib/cspice_dll.exp" ]; then
+              cp lib/cspice_dll.exp artifacts/${{ matrix.artifact_name }}/
+            fi
+          fi
+          
+          # Copy headers
+          cp -r include artifacts/${{ matrix.artifact_name }}/
+          
+          # Copy documentation and readme files
+          cp README*.md artifacts/${{ matrix.artifact_name }}/ || true
+          cp README*.txt artifacts/${{ matrix.artifact_name }}/ || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: artifacts/${{ matrix.artifact_name }}
+          retention-days: 30
+
+  create-release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release archives
+        run: |
+          cd artifacts
+          for dir in */; do
+            if [ -d "$dir" ]; then
+              echo "Creating archive for $dir"
+              tar -czf "${dir%/}.tar.gz" "$dir"
+              zip -r "${dir%/}.zip" "$dir"
+            fi
+          done
+          ls -la *.tar.gz *.zip
+
+      - name: Determine tag name
+        id: tag_name
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag_name=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag_name.outputs.tag_name }}
+          release_name: CSPICE Libraries ${{ steps.tag_name.outputs.tag_name }}
+          body: |
+            ## CSPICE Pre-built Libraries ${{ steps.tag_name.outputs.tag_name }}
+            
+            This release contains pre-built CSPICE libraries for multiple platforms:
+            
+            ### Platforms
+            - **Linux x64**: Static library (`libcspice.a`)
+            - **macOS x64**: Static library (`libcspice.a`)
+            - **Windows x64**: Static library (`cspice.lib`) and Dynamic library (`cspice.dll`)
+            
+            ### Contents
+            Each archive contains:
+            - Compiled library files
+            - Header files (`include/` directory)
+            - Platform-specific README files
+            
+            ### Usage
+            1. Download the appropriate archive for your platform
+            2. Extract the archive
+            3. Link against the library in your C/C++ projects
+            4. Include the header files from the `include/` directory
+            
+            ### Notes
+            - Libraries are built using the same build scripts as provided in the source repository
+            - For detailed usage instructions, see the README files included in each archive
+            - This is an unofficial distribution of the NASA/JPL SPICE Toolkit
+          draft: false
+          prerelease: false
+
+      - name: Upload Linux Archive (tar.gz)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/cspice-linux-x64.tar.gz
+          asset_name: cspice-linux-x64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Linux Archive (zip)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/cspice-linux-x64.zip
+          asset_name: cspice-linux-x64.zip
+          asset_content_type: application/zip
+
+      - name: Upload macOS Archive (tar.gz)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/cspice-macos-x64.tar.gz
+          asset_name: cspice-macos-x64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload macOS Archive (zip)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/cspice-macos-x64.zip
+          asset_name: cspice-macos-x64.zip
+          asset_content_type: application/zip
+
+      - name: Upload Windows Static Archive (tar.gz)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/cspice-windows-static.tar.gz
+          asset_name: cspice-windows-static.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Windows Static Archive (zip)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/cspice-windows-static.zip
+          asset_name: cspice-windows-static.zip
+          asset_content_type: application/zip
+
+      - name: Upload Windows DLL Archive (tar.gz)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/cspice-windows-dll.tar.gz
+          asset_name: cspice-windows-dll.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Windows DLL Archive (zip)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/cspice-windows-dll.zip
+          asset_name: cspice-windows-dll.zip
+          asset_content_type: application/zip
