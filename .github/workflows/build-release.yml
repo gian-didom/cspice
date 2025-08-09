@@ -62,8 +62,22 @@ jobs:
         shell: bash
         run: |
           cd src
-          chmod +x ${{ matrix.build_script }}
-          ./${{ matrix.build_script }}
+          echo "Compiling CSPICE C source files..."
+          
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            # Linux build
+            gcc -c -m64 -O2 -fPIC -I../include -DNON_UNIX_STDIO *.c
+          else
+            # macOS build  
+            cc -c -O2 -fPIC -I../include -DNON_UNIX_STDIO *.c
+          fi
+          
+          echo "Creating static library..."
+          ar crv ../lib/libcspice.a *.o
+          ranlib ../lib/libcspice.a
+          rm -f *.o
+          
+          echo "Build completed successfully"
 
       - name: Build CSPICE library (Windows)
         if: matrix.shell == 'cmd'

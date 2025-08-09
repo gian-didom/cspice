@@ -1,0 +1,51 @@
+name: Test CSPICE Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-linux-build:
+    name: Test Linux Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y csh
+
+      - name: Build CSPICE library
+        run: |
+          cd src
+          echo "Compiling CSPICE C source files..."
+          gcc -c -m64 -O2 -fPIC -I../include -DNON_UNIX_STDIO *.c
+          
+          echo "Creating static library..."
+          ar crv ../lib/libcspice.a *.o
+          ranlib ../lib/libcspice.a
+          rm -f *.o
+          
+          echo "Build completed successfully"
+
+      - name: Verify build output
+        run: |
+          if [ -f "lib/libcspice.a" ]; then
+            echo "Build successful: lib/libcspice.a"
+            ls -la lib/libcspice.a
+            file lib/libcspice.a
+          else
+            echo "Build failed: lib/libcspice.a not found"
+            exit 1
+          fi
+
+      - name: Upload test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-linux-build
+          path: |
+            lib/libcspice.a
+            include/
+          retention-days: 1

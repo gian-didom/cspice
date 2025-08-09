@@ -1,8 +1,21 @@
 # CSPICE Toolkit
 
+[![Build and Release](https://github.com/gian-didom/cspice/actions/workflows/build-release.yml/badge.svg)](https://github.com/gian-didom/cspice/actions/workflows/build-release.yml)
+
 This is unofficial copy of [NASA/JPL SPICE Toolkit for C](https://naif.jpl.nasa.gov/naif/toolkit.html) patched for cross-platform compatibility (Linux, macOS, Windows and Web).
 
 Please refer to the [original SPICE Toolkit for C documentation](https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/C/index.html).
+
+## 🚀 Pre-built Libraries Available
+
+**New!** Pre-built libraries are now automatically generated for multiple platforms. Check the [Releases](../../releases) page to download ready-to-use libraries instead of building from source.
+
+Available platforms:
+- Linux x64 (static library)
+- macOS x64 (static library)  
+- Windows x64 (static and dynamic libraries)
+
+For CI/CD documentation, see [`.github/README_CI.md`](.github/README_CI.md).
 
 <div align="center"><img src="/doc/images/spice_logo.png" align="middle" width="512px" height="158px"/></div>
 
